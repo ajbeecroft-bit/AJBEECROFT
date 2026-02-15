@@ -28,10 +28,21 @@ def load_config() -> dict:
     return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
 
 
-def source_to_google_news_rss(source_url: str) -> str:
-    domain = urllib.parse.urlparse(source_url).netloc.replace("www.", "")
-    query = urllib.parse.quote(f"site:{domain} when:1d")
-    return f"https://news.google.com/rss/search?q={query}&hl=en-US&gl=US&ceid=US:en"
+def normalize_source(source: str | dict) -> dict:
+    if isinstance(source, str):
+        return {
+            "name": urllib.parse.urlparse(source).netloc,
+            "rss": None,
+            "website": source,
+        }
+
+    website = source.get("website", source.get("rss", ""))
+    name = source.get("name") or urllib.parse.urlparse(website).netloc
+    return {
+        "name": name,
+        "rss": source.get("rss"),
+        "website": website,
+    }
 
 
 def fetch_text(url: str) -> str:
@@ -43,13 +54,65 @@ def fetch_text(url: str) -> str:
 def parse_feed(feed_xml: str) -> list[dict]:
     root = ET.fromstring(feed_xml)
     items = []
-    for item in root.findall(".//item")[:MAX_STORIES_PER_SOURCE]:
+    entries = root.findall(".//item") or root.findall(".//entry")
+    for item in entries[:MAX_STORIES_PER_SOURCE]:
         title = (item.findtext("title") or "Untitled story").strip()
         link = (item.findtext("link") or "").strip()
-        description = re.sub(r"<[^>]*>", " ", item.findtext("description") or "")
+        if not link:
+            link_el = item.find("link")
+            link = link_el.get("href", "") if link_el is not None else ""
+        description = (
+            item.findtext("description")
+            or item.findtext("summary")
+            or item.findtext("content")
+            or ""
+        )
+        description = re.sub(r"<[^>]*>", " ", description)
         description = re.sub(r"\s+", " ", description).strip()
         items.append({"title": title, "link": link, "description": description})
     return items
+
+
+def discover_feed_links(website_url: str) -> list[str]:
+    try:
+        html_text = fetch_text(website_url)
+    except Exception:
+        return []
+
+    links = []
+    for href, feed_type in re.findall(r"<link[^>]+href=['\"]([^'\"]+)['\"][^>]*type=['\"]([^'\"]+)['\"][^>]*>", html_text, re.IGNORECASE):
+        if any(t in feed_type.lower() for t in ["rss", "atom", "xml"]):
+            links.append(urllib.parse.urljoin(website_url, href))
+
+    origin = urllib.parse.urlsplit(website_url)
+    base = f"{origin.scheme}://{origin.netloc}" if origin.scheme and origin.netloc else website_url
+    links.extend([f"{base}/feed", f"{base}/rss", f"{base}/rss.xml", f"{base}/feed.xml"])
+
+    unique = []
+    seen = set()
+    for link in links:
+        if link and link not in seen:
+            seen.add(link)
+            unique.append(link)
+    return unique
+
+
+def resolve_feed_url(source: dict) -> str:
+    candidates = []
+    if source.get("rss"):
+        candidates.append(source["rss"])
+    if source.get("website"):
+        candidates.extend(discover_feed_links(source["website"]))
+
+    for candidate in candidates:
+        try:
+            items = parse_feed(fetch_text(candidate))
+            if items:
+                return candidate
+        except Exception:
+            continue
+
+    raise ValueError(f"No RSS feed found for {source['name']}")
 
 
 def call_openai_synthesis(category: str, stories: list[dict], api_key: str) -> str:
@@ -91,9 +154,7 @@ def call_openai_synthesis(category: str, stories: list[dict], api_key: str) -> s
 def fallback_synthesis(stories: list[dict]) -> str:
     if not stories:
         return "No reliable stories were found for this category in the last 24 hours."
-    snippets = []
-    for story in stories[:8]:
-        snippets.append(story["title"])
+    snippets = [story["title"] for story in stories[:8]]
     joined = "; ".join(snippets)
     return (
         f"Across monitored sources, the day centered on: {joined}. "
@@ -104,16 +165,19 @@ def fallback_synthesis(stories: list[dict]) -> str:
 
 def collect_category(category: dict, api_key: str | None) -> dict:
     stories = []
-    for source_url in category.get("sources", []):
+    failed_sources = 0
+    for source_input in category.get("sources", []):
+        source = normalize_source(source_input)
         try:
-            feed_url = source_to_google_news_rss(source_url)
+            feed_url = resolve_feed_url(source)
             items = parse_feed(fetch_text(feed_url))
-            source_name = urllib.parse.urlparse(source_url).netloc
             for item in items:
-                item["source"] = source_name
+                item["source"] = source["name"]
                 stories.append(item)
         except Exception as exc:  # noqa: BLE001
-            print(f"Warning: failed source {source_url}: {exc}", file=sys.stderr)
+            failed_sources += 1
+            print(f"Warning: failed source {source['name']}: {exc}", file=sys.stderr)
+
     if api_key:
         try:
             synthesis = call_openai_synthesis(category["name"], stories, api_key)
@@ -126,6 +190,7 @@ def collect_category(category: dict, api_key: str | None) -> dict:
     return {
         "name": category["name"],
         "story_count": len(stories),
+        "failed_sources": failed_sources,
         "synthesis": synthesis,
     }
 
@@ -136,7 +201,7 @@ def build_email_html(results: list[dict]) -> str:
         blocks.append(
             f"""
             <h2 style=\"margin-bottom:6px;\">{html.escape(result['name'])}</h2>
-            <p style=\"color:#5b6780;margin-top:0;\">Analyzed stories: {result['story_count']}</p>
+            <p style=\"color:#5b6780;margin-top:0;\">Analyzed stories: {result['story_count']} | Failed sources: {result['failed_sources']}</p>
             <p style=\"line-height:1.5;\">{html.escape(result['synthesis'])}</p>
             """
         )
