@@ -5,6 +5,7 @@ const lastUpdatedEl = document.getElementById('lastUpdated');
 const categoryTemplate = document.getElementById('categoryTemplate');
 
 const FEED_PROXY = 'https://api.allorigins.win/raw?url=';
+const STORIES_PER_SOURCE = 5;
 
 function sourceToGoogleNewsRss(sourceUrl) {
   const domain = new URL(sourceUrl).hostname.replace(/^www\./, '');
@@ -16,18 +17,16 @@ function feedViaProxy(feedUrl) {
   return `${FEED_PROXY}${encodeURIComponent(feedUrl)}`;
 }
 
-function firstUsefulSentence(text) {
-  const cleaned = text.replace(/\s+/g, ' ').replace(/<[^>]*>/g, '').trim();
-  const pieces = cleaned.split(/(?<=[.!?])\s+/).filter(Boolean);
-  return pieces.find((p) => p.length > 40) || cleaned.slice(0, 180) || 'No summary available.';
+function cleanText(text) {
+  return text.replace(/\s+/g, ' ').replace(/<[^>]*>/g, '').trim();
 }
 
-function summarizeCategory(stories) {
+function synthesizeParagraph(stories) {
   if (!stories.length) {
-    return 'No lead stories found for this category yet.';
+    return 'No reliable stories were found in the last 24 hours for this category.';
   }
 
-  const topWords = stories
+  const wordScores = stories
     .flatMap((s) => `${s.title} ${s.description}`.toLowerCase().split(/[^a-z0-9]+/))
     .filter((w) => w.length > 4 && !['about', 'their', 'there', 'after', 'would', 'which', 'could', 'today'].includes(w))
     .reduce((acc, word) => {
@@ -35,16 +34,18 @@ function summarizeCategory(stories) {
       return acc;
     }, {});
 
-  const themes = Object.entries(topWords)
+  const themes = Object.entries(wordScores)
     .sort((a, b) => b[1] - a[1])
-    .slice(0, 3)
-    .map(([word]) => word);
+    .slice(0, 4)
+    .map(([w]) => w);
 
-  const themeText = themes.length ? `Common themes: ${themes.join(', ')}. ` : '';
-  return `${themeText}Lead headlines suggest ${stories.length} key developments today across this category.`;
+  const lead = stories.slice(0, 5).map((s) => s.title).join('; ');
+  const themeText = themes.length ? `Major themes include ${themes.join(', ')}. ` : '';
+
+  return `${themeText}Across ${stories.length} lead stories gathered from this category's sources, coverage converges on these developments: ${lead}. Overall, reporting suggests these stories are shaping the current daily agenda across outlets.`;
 }
 
-async function fetchLeadStory(sourceUrl) {
+async function fetchLeadStories(sourceUrl) {
   const feedUrl = sourceToGoogleNewsRss(sourceUrl);
   const response = await fetch(feedViaProxy(feedUrl));
   if (!response.ok) {
@@ -53,46 +54,26 @@ async function fetchLeadStory(sourceUrl) {
 
   const xmlText = await response.text();
   const xml = new DOMParser().parseFromString(xmlText, 'text/xml');
-  const firstItem = xml.querySelector('item');
+  const items = Array.from(xml.querySelectorAll('item')).slice(0, STORIES_PER_SOURCE);
 
-  if (!firstItem) {
-    throw new Error(`No stories found for ${sourceUrl}`);
-  }
-
-  const title = firstItem.querySelector('title')?.textContent?.trim() || 'Untitled story';
-  const link = firstItem.querySelector('link')?.textContent?.trim() || sourceUrl;
-  const description = firstItem.querySelector('description')?.textContent?.trim() || '';
-
-  return {
+  return items.map((item) => ({
     source: new URL(sourceUrl).hostname,
-    title,
-    link,
-    description: firstUsefulSentence(description)
-  };
+    title: cleanText(item.querySelector('title')?.textContent || 'Untitled story'),
+    description: cleanText(item.querySelector('description')?.textContent || '')
+  }));
 }
 
-function renderCategory(categoryName, stories) {
+function renderCategory(categoryName, stories, sourceCount) {
   const node = categoryTemplate.content.cloneNode(true);
   node.querySelector('.category-title').textContent = categoryName;
-  node.querySelector('.category-summary').textContent = summarizeCategory(stories);
-
-  const list = node.querySelector('.story-list');
-  stories.forEach((story) => {
-    const li = document.createElement('li');
-    li.innerHTML = `
-      <a href="${story.link}" target="_blank" rel="noreferrer">${story.title}</a>
-      <p class="story-source">Source: ${story.source}</p>
-      <p class="story-snippet">${story.description}</p>
-    `;
-    list.appendChild(li);
-  });
-
+  node.querySelector('.category-meta').textContent = `Analyzed ${stories.length} stories from ${sourceCount} sources (up to ${STORIES_PER_SOURCE} stories/source).`;
+  node.querySelector('.category-summary').textContent = synthesizeParagraph(stories);
   categoriesContainer.appendChild(node);
 }
 
 async function buildDigest() {
   const { categories = [] } = window.DIGEST_CONFIG || {};
-  statusEl.textContent = 'Collecting lead stories...';
+  statusEl.textContent = 'Collecting and synthesizing stories...';
   categoriesContainer.innerHTML = '';
 
   for (const category of categories) {
@@ -100,14 +81,14 @@ async function buildDigest() {
 
     for (const sourceUrl of category.sources) {
       try {
-        const story = await fetchLeadStory(sourceUrl);
-        stories.push(story);
+        const sourceStories = await fetchLeadStories(sourceUrl);
+        stories.push(...sourceStories);
       } catch (error) {
         console.warn(error.message);
       }
     }
 
-    renderCategory(category.name, stories);
+    renderCategory(category.name, stories, category.sources.length);
   }
 
   statusEl.textContent = 'Digest ready.';

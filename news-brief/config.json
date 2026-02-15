@@ -1,6 +1,4 @@
-window.DIGEST_CONFIG = {
-  categories: [
-   {
+ {
       name: 'Canada',
       sources: [
         'https://www.cbc.ca/news',
@@ -18,22 +16,21 @@ window.DIGEST_CONFIG = {
 	'https://en.wikipedia.org/wiki/Opinion_polling_for_the_46th_Canadian_federal_election'
       ]
     },
-
     {
-      name: 'Business',
-      sources: [
-        'https://www.wsj.com',
-        'https://www.ft.com',
-        'https://www.bloomberg.com'
+      "name": "Business",
+      "sources": [
+        "https://www.wsj.com",
+        "https://www.ft.com",
+        "https://www.bloomberg.com"
       ]
     },
     {
-      name: 'World News',
-      sources: [
-        'https://www.bbc.com',
-        'https://www.reuters.com',
-        'https://apnews.com'
+      "name": "World News",
+      "sources": [
+        "https://www.bbc.com",
+        "https://www.reuters.com",
+        "https://apnews.com"
       ]
     }
   ]
-};
+}

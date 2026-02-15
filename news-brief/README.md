@@ -1,68 +1,73 @@
 # Daily Lead Story Digest
 
-This is a simple website that gathers lead stories by category.
+This project now supports two delivery modes:
 
-If you can edit one file, you can customize this app.
+1. **Website view** in `docs/news-brief/`.
+2. **Automatic daily email** sent at **3:00 AM EST** via GitHub Actions.
 
-## 1) Where the website files are
+## What changed
 
-Inside your repo:
+- Pulls **up to 5 lead stories per source**.
+- Produces a **single paragraph synthesis** per category (instead of listing individual headlines).
+- Email workflow can use OpenAI to **translate non-English content to English** and synthesize category summaries.
 
-- `docs/news-brief/index.html` (main page)
-- `docs/news-brief/config.js` (categories + websites to scan)
-- `docs/news-brief/app.js` (logic)
-- `docs/news-brief/styles.css` (design)
+## Edit categories and sources
 
-## 2) Add your own categories (no coding knowledge needed)
+Update both of these files with matching categories/sources:
 
-Open `docs/news-brief/config.js` and copy/paste a category block like this:
+- `docs/news-brief/config.js` (website)
+- `docs/news-brief/config.json` (email workflow)
 
-```js
+Category format:
+
+```json
 {
-  name: 'Science',
-  sources: ['https://www.nature.com', 'https://www.scientificamerican.com']
+  "name": "Science",
+  "sources": ["https://www.nature.com", "https://www.scientificamerican.com"]
 }
 ```
 
-Change only:
+## Website access
 
-- `name` → what you want the category to be called
-- `sources` → list of websites for that category
-
-Save/commit the file. Done.
-
-## 3) Publish on GitHub Pages (step-by-step)
-
-1. Push this repo to GitHub.
-2. In GitHub, open your repository.
-3. Click **Settings**.
-4. Click **Pages**.
-5. Under **Build and deployment**:
-   - Source: **Deploy from a branch**
-   - Branch: **main** (or your default branch)
-   - Folder: **/docs**
-6. Click **Save**.
-7. Wait 1-3 minutes.
-
-Your site URL will be:
+After GitHub Pages deploys from `/docs`, open:
 
 `https://YOUR-USERNAME.github.io/YOUR-REPO/news-brief/`
 
-## 4) If GitHub Pages build fails (like your screenshot)
+## Daily email setup (3:00 AM EST)
 
-This repository includes `docs/.nojekyll` to disable Jekyll processing.
-That avoids common build errors when deploying plain static files.
+The workflow file is:
 
-If you still see a failed run:
+- `.github/workflows/news-digest-email.yml`
 
-1. Go to **Actions**.
-2. Open the failed "pages build and deployment" run.
-3. Click **Re-run jobs**.
-4. Confirm Pages source is still set to **Branch + /docs**.
+It runs at `0 8 * * *` (08:00 UTC = 03:00 EST).
 
-## How it works
+### Required GitHub Secrets
 
-- Converts each source website to a Google News RSS search query (`site:domain when:1d`).
-- Fetches RSS through AllOrigins to avoid CORS issues.
-- Picks the first item as each source's lead story.
-- Generates a lightweight category summary from headline keywords.
+Go to **Settings → Secrets and variables → Actions** and add:
+
+- `OPENAI_API_KEY` (optional but recommended for better synthesis + translation)
+- `SMTP_HOST`
+- `SMTP_PORT` (usually `465`)
+- `SMTP_USER`
+- `SMTP_PASSWORD`
+- `FROM_EMAIL`
+- `TO_EMAIL`
+
+### SMTP provider examples
+
+- Gmail app password SMTP (`smtp.gmail.com`, port `465`)
+- SendGrid SMTP
+- Mailgun SMTP
+
+## Manual test before scheduling
+
+You can run a dry-run locally (no email sent):
+
+```bash
+python scripts/news_digest_email.py --dry-run
+```
+
+## Notes
+
+- `docs/.nojekyll` is included so GitHub Pages treats `/docs` as static files.
+- If OpenAI key is missing, the script uses a fallback summary method.
