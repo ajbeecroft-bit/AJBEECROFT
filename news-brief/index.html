@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Daily Lead Story Digest</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="container">
+      <header>
+        <h1>Daily Lead Story Digest</h1>
+        <p>
+          Add or edit categories in <code>config.js</code>. Each source only needs a
+          website URL.
+        </p>
+      </header>
+
+      <section class="controls">
+        <button id="refreshBtn">Refresh Digest</button>
+        <span id="lastUpdated">Not loaded yet.</span>
+      </section>
+
+      <section id="status" class="status"></section>
+      <section id="categories" class="categories"></section>
+    </main>
+
+    <template id="categoryTemplate">
+      <article class="category-card">
+        <h2 class="category-title"></h2>
+        <p class="category-summary"></p>
+        <ul class="story-list"></ul>
+      </article>
+    </template>
+
+    <script src="config.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
