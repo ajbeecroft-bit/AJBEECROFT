@@ -4,13 +4,12 @@ const refreshBtn = document.getElementById('refreshBtn');
 const lastUpdatedEl = document.getElementById('lastUpdated');
 const categoryTemplate = document.getElementById('categoryTemplate');
 
-const FEED_PROXY = 'https://api.allorigins.win/raw?url=';
 const STORIES_PER_SOURCE = 5;
 const resolvedRssCache = new Map();
-
-function feedViaProxy(url) {
-  return `${FEED_PROXY}${encodeURIComponent(url)}`;
-}
+const PROXY_BUILDERS = [
+  (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+  (url) => `https://r.jina.ai/http://${url.replace(/^https?:\/\//, '')}`
+];
 
 function cleanText(text) {
   return text.replace(/\s+/g, ' ').replace(/<[^>]*>/g, '').trim();
@@ -48,18 +47,29 @@ function websiteCandidateFeeds(websiteUrl) {
   return [`${origin}/feed`, `${origin}/rss`, `${origin}/rss.xml`, `${origin}/feed.xml`];
 }
 
+async function fetchTextWithFallback(url) {
+  for (const buildProxyUrl of PROXY_BUILDERS) {
+    try {
+      const response = await fetch(buildProxyUrl(url));
+      if (!response.ok) {
+        continue;
+      }
+      return await response.text();
+    } catch {
+      // try next proxy
+    }
+  }
+
+  throw new Error(`Unable to fetch ${url} through available proxies`);
+}
+
 async function discoverFeedsFromWebsite(websiteUrl) {
   if (!websiteUrl) {
     return [];
   }
 
   try {
-    const response = await fetch(feedViaProxy(websiteUrl));
-    if (!response.ok) {
-      return [];
-    }
-
-    const html = await response.text();
+    const html = await fetchTextWithFallback(websiteUrl);
     const doc = new DOMParser().parseFromString(html, 'text/html');
     const links = Array.from(doc.querySelectorAll('link[rel~="alternate"]'));
 
@@ -75,33 +85,38 @@ async function discoverFeedsFromWebsite(websiteUrl) {
   }
 }
 
-async function isValidFeed(feedUrl) {
-  try {
-    const response = await fetch(feedViaProxy(feedUrl));
-    if (!response.ok) {
-      return false;
-    }
-
-    const xmlText = await response.text();
-    const xml = new DOMParser().parseFromString(xmlText, 'text/xml');
-    const parseError = xml.querySelector('parsererror');
-    if (parseError) {
-      return false;
-    }
-
-    return xml.querySelector('item, entry') !== null;
-  } catch {
-    return false;
+function parseFeedItems(xmlText) {
+  const xml = new DOMParser().parseFromString(xmlText, 'text/xml');
+  const parseError = xml.querySelector('parsererror');
+  if (parseError) {
+    return [];
   }
+
+  return Array.from(xml.querySelectorAll('item, entry')).slice(0, STORIES_PER_SOURCE);
 }
 
-async function resolveRssUrl(source) {
-  const cacheKey = `${source.name}|${source.website || ''}|${source.rss || ''}`;
-  if (resolvedRssCache.has(cacheKey)) {
-    return resolvedRssCache.get(cacheKey);
+async function fetchStoriesFromRssUrl(sourceName, rssUrl) {
+  const xmlText = await fetchTextWithFallback(rssUrl);
+  const items = parseFeedItems(xmlText);
+  if (!items.length) {
+    return [];
   }
 
+  return items.map((item) => ({
+    source: sourceName,
+    title: cleanText(item.querySelector('title')?.textContent || 'Untitled story'),
+    description: cleanText(item.querySelector('description, summary, content')?.textContent || '')
+  }));
+}
+
+async function fetchLeadStories(sourceInput) {
+  const source = normalizeSource(sourceInput);
+  const cacheKey = `${source.name}|${source.website || ''}|${source.rss || ''}`;
+
   const candidates = [];
+  if (resolvedRssCache.has(cacheKey)) {
+    candidates.push(resolvedRssCache.get(cacheKey));
+  }
   if (source.rss) {
     candidates.push(source.rss);
   }
@@ -114,15 +129,20 @@ async function resolveRssUrl(source) {
     if (!candidate || seen.has(candidate)) {
       continue;
     }
-    seen.add(candidate);
 
-    if (await isValidFeed(candidate)) {
-      resolvedRssCache.set(cacheKey, candidate);
-      return candidate;
+    seen.add(candidate);
+    try {
+      const stories = await fetchStoriesFromRssUrl(source.name, candidate);
+      if (stories.length) {
+        resolvedRssCache.set(cacheKey, candidate);
+        return stories;
+      }
+    } catch {
+      // try next candidate
     }
   }
 
-  throw new Error(`No RSS feed found for ${source.name}`);
+  throw new Error(`No RSS feed with stories found for ${source.name}`);
 }
 
 function synthesizeParagraph(stories) {
@@ -149,29 +169,10 @@ function synthesizeParagraph(stories) {
   return `${themeText}Across ${stories.length} lead stories gathered from this category's RSS sources, coverage converges on these developments: ${lead}. Overall, reporting suggests these stories are shaping the current daily agenda across outlets.`;
 }
 
-async function fetchLeadStories(sourceInput) {
-  const source = normalizeSource(sourceInput);
-  const rssUrl = await resolveRssUrl(source);
-  const response = await fetch(feedViaProxy(rssUrl));
-  if (!response.ok) {
-    throw new Error(`Unable to fetch feed for ${source.name}`);
-  }
-
-  const xmlText = await response.text();
-  const xml = new DOMParser().parseFromString(xmlText, 'text/xml');
-  const items = Array.from(xml.querySelectorAll('item, entry')).slice(0, STORIES_PER_SOURCE);
-
-  return items.map((item) => ({
-    source: source.name,
-    title: cleanText(item.querySelector('title')?.textContent || 'Untitled story'),
-    description: cleanText(item.querySelector('description, summary, content')?.textContent || '')
-  }));
-}
-
 function renderCategory(categoryName, stories, sourceCount, failedSources) {
   const node = categoryTemplate.content.cloneNode(true);
   node.querySelector('.category-title').textContent = categoryName;
-  node.querySelector('.category-meta').textContent = `Analyzed ${stories.length} stories from ${sourceCount} RSS sources (up to ${STORIES_PER_SOURCE} stories/source). Failed sources: ${failedSources}.`;
+  node.querySelector('.category-meta').textContent = `Analyzed ${stories.length} stories from ${sourceCount} sources (up to ${STORIES_PER_SOURCE} stories/source). Failed sources: ${failedSources}.`;
   node.querySelector('.category-summary').textContent = synthesizeParagraph(stories);
   categoriesContainer.appendChild(node);
 }

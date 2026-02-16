@@ -20,25 +20,6 @@ window.DIGEST_CONFIG = {
         }
       ]
     },
- {
-      name: 'Canada',
-      sources: [
-        'https://www.cbc.ca/news',
-        'https://ici.radio-canada.ca/info',
-        'https://www.ctvnews.ca',
-	'https://www.tvanouvelles.ca',
-	'https://www.theglobeandmail.com',
-	'https://nationalpost.com',
-	'https://www.thestar.com',
-	'https://www.journaldemontreal.com',
-	'https://www.ledevoir.com//',
-	'https://www.politico.com/canada-politics-news-updates-analysis/',
-	'https://paulwells.substack.com/',
-	'https://https://thetyee.ca/',
-	'https://en.wikipedia.org/wiki/Opinion_polling_for_the_46th_Canadian_federal_election'
-      ]
-    },
-
     {
       name: 'Business',
       sources: [
@@ -59,6 +40,25 @@ window.DIGEST_CONFIG = {
         }
       ]
     },
+{
+      name: 'Canada',
+      sources: [
+        'https://www.cbc.ca/news',
+        'https://ici.radio-canada.ca/info',
+        'https://www.ctvnews.ca',
+	'https://www.tvanouvelles.ca',
+	'https://www.theglobeandmail.com',
+	'https://nationalpost.com',
+	'https://www.thestar.com',
+	'https://www.journaldemontreal.com',
+	'https://www.ledevoir.com//',
+	'https://www.politico.com/canada-politics-news-updates-analysis/',
+	'https://paulwells.substack.com/',
+	'https://https://thetyee.ca/',
+	'https://en.wikipedia.org/wiki/Opinion_polling_for_the_46th_Canadian_federal_election'
+      ]
+    },
+
     {
       name: 'World News',
       sources: [

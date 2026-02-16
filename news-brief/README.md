@@ -12,6 +12,7 @@ The digest now prefers each source's **direct RSS feed**, and can auto-discover 
 - Up to 5 stories per source.
 - One paragraph synthesis per category.
 - If `rss` is omitted, the app/script tries to find a feed from the site.
+- Website mode now tries multiple fetch proxies before giving up on a source.
 
 ## Edit categories and sources
 
